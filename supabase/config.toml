@@ -1,0 +1,4 @@
+project_id = "mmdos-application"
+
+[functions.admin-provision-member]
+verify_jwt = true

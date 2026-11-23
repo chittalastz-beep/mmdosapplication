@@ -1,0 +1,17 @@
+{
+  "name": "MMDOS Application - Mantra Manor Duplex Owners Society",
+  "short_name": "MMDOS",
+  "description": "Society management workspace for Mantra Manor Duplex Owners Society.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f5",
+  "theme_color": "#f5f7f5",
+  "icons": [
+    {
+      "src": "/mmdos-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
