@@ -21,7 +21,7 @@ In the Supabase project, open **SQL Editor** and run the complete contents of th
 - `supabase/migrations/202611230003_application_administrator.sql`
 - `supabase/migrations/202611230004_admin_provisioning_service_role_grants.sql`
 - `supabase/migrations/202611230005_member_readonly_full_app.sql`
-
+     
 Migration `003` adds phone-based member linking and role-specific access. Migration `004` enables President/Secretary member profile and role editing. Migration `005` restricts database access to Google-authenticated sessions and links new member profiles to confirmed Auth emails. Migration `006` grants authenticated sessions the table privilege needed to query visitor records; RLS still filters rows by role. Migration `007` adds the limited Administrator role and server-side Auth provisioning. Migration `008` grants the function's server-side `service_role` limited access to society member profiles. Migration `009` makes active Member accounts read-only across all application modules, including visitor logs. Apply migrations in order. If migrations `001`–`008` are already applied, run only `009`; if `001`–`007` are applied, run `008` then `009`. Do not rerun an already-applied migration. Migration `002` is safe to run whether `001` already contains its login activity additions or not. Do not expose a database password or service-role key in the browser app.
 
 ## 3. Bootstrap the first Administrator
