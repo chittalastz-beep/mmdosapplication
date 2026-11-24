@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import {
   checkoutVisitor as saveVisitorCheckout,
   createExpense as saveExpense,
+  createMaintenancePayment as saveMaintenancePayment,
   createMaintenanceRequest as saveMaintenance,
   createMember as saveMember,
   createNotice as saveNotice,
@@ -20,7 +21,7 @@ import {
   updateSocietyMember as saveSocietyMember,
 } from './lib/societyData'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-import type { Expense, ExpenseStatus, MaintenanceRequest, Member, Notice, SocietyData, Visitor } from './types'
+import type { Expense, ExpenseStatus, MaintenancePayment, MaintenanceRequest, Member, Notice, SocietyData, Visitor } from './types'
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -50,7 +51,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-type Section = 'overview' | 'members' | 'memberAdmin' | 'accounts' | 'maintenance' | 'security' | 'notices' | 'reports'
+type Section = 'overview' | 'members' | 'memberAdmin' | 'accounts' | 'collections' | 'maintenance' | 'security' | 'notices' | 'reports'
 const STORAGE_KEY = 'mmdos-society-demo-v1'
 const TOTAL_DUPLEX_HOMES = 102
 const renderDate = new Date()
@@ -69,6 +70,7 @@ const initialData: SocietyData = {
     { id: 'EXP-022', title: 'October housekeeping services', category: 'Housekeeping', vendor: 'CleanNest Services', amount: 18500, date: '2026-11-02', receipt: 'Invoice-102.pdf', status: 'approved', submittedBy: 'Manish Patel' },
     { id: 'EXP-021', title: 'Lift annual maintenance', category: 'Maintenance', vendor: 'Apex Lift Care', amount: 12000, date: '2026-10-28', receipt: 'Invoice-88.pdf', status: 'paid', submittedBy: 'Anita Shah' },
   ],
+  maintenancePayments: [],
   requests: [
     { id: 'MT-018', title: 'Repair entrance gate sensor', location: 'Main entrance', priority: 'Urgent', status: 'In progress', reportedBy: 'Priya Desai', date: today() },
     { id: 'MT-017', title: 'Water seepage near parking', location: 'Parking B-04', priority: 'High', status: 'Open', reportedBy: 'Kunal Joshi', date: '2026-11-20' },
@@ -107,6 +109,7 @@ const sectionInfo: Record<Section, { title: string; subtitle: string; icon: type
   members: { title: 'Members', subtitle: 'The people who make Mantra Manor home.', icon: Users },
   memberAdmin: { title: 'Manage members', subtitle: 'Add member access and maintain society roles.', icon: ShieldCheck },
   accounts: { title: 'Accounts & expenses', subtitle: 'Every rupee recorded, reviewed and visible.', icon: Wallet },
+  collections: { title: 'Maintenance collections', subtitle: 'Record and review monthly member contributions.', icon: CircleDollarSign },
   maintenance: { title: 'Maintenance', subtitle: 'Track requests from report to resolution.', icon: Wrench },
   security: { title: 'Gate & security', subtitle: 'A live record of visitors and service entries.', icon: Shield },
   notices: { title: 'Community notices', subtitle: 'Keep every household informed and involved.', icon: Bell },
@@ -245,8 +248,9 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   const [backendLoading, setBackendLoading] = useState(Boolean(session))
   const [backendError, setBackendError] = useState('')
   const [section, setSection] = useState<Section>('overview')
-  const [modal, setModal] = useState<'expense' | 'maintenance' | 'visitor' | 'notice' | 'member' | 'editMember' | 'profile' | null>(null)
+  const [modal, setModal] = useState<'expense' | 'payment' | 'maintenance' | 'visitor' | 'notice' | 'member' | 'editMember' | 'profile' | null>(null)
   const [editingMember, setEditingMember] = useState<Member | null>(null)
+  const [paymentMonth, setPaymentMonth] = useState(today().slice(0, 7))
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState('')
   const [mobileMenu, setMobileMenu] = useState(false)
@@ -341,6 +345,47 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
       'Expense submitted for treasurer review.',
     )
     if (saved) setModal(null)
+  }
+
+  const addMaintenancePayment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const member = data.members.find((item) => item.id === String(form.get('memberId')))
+    const billingMonth = String(form.get('billingMonth'))
+    const amount = Number(form.get('amount'))
+    const receivedOn = String(form.get('receivedOn'))
+    const reference = String(form.get('reference')).trim()
+    if (!member) {
+      notify('Select a unit from the society member list.')
+      return
+    }
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(billingMonth)) {
+      notify('Choose a valid billing month.')
+      return
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || !receivedOn) {
+      notify('Enter a valid payment amount and received date.')
+      return
+    }
+    const payment: MaintenancePayment = {
+      id: `MP-${Date.now()}`,
+      memberId: member.id,
+      memberName: member.name,
+      unit: member.unit,
+      billingMonth,
+      amount,
+      receivedOn,
+      reference,
+    }
+    const saved = await commitChange(
+      (current) => ({ ...current, maintenancePayments: [payment, ...current.maintenancePayments] }),
+      () => saveMaintenancePayment(payment),
+      'Maintenance payment recorded.',
+    )
+    if (saved) {
+      setPaymentMonth(billingMonth)
+      setModal(null)
+    }
   }
 
   const advanceExpense = async (expenseId: string) => {
@@ -624,11 +669,14 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   const isReadOnlyMember = currentMember?.role === 'Member'
   const canManageMembers = !session || isAdministrator || currentMember?.role === 'President' || currentMember?.role === 'Secretary'
   const canViewMemberManagement = canManageMembers || isReadOnlyMember
+  const canViewMaintenanceCollections = !session || currentMember?.role !== 'Security'
+  const canManageMaintenanceCollections = !session || isAdministrator || currentMember?.role === 'Treasurer'
   const nav: { id: Section; label: string; icon: typeof Home; badge?: number }[] = [
     { id: 'overview', label: 'Overview', icon: Home },
     { id: 'members', label: 'Members', icon: Users },
     { id: 'memberAdmin', label: 'Manage members', icon: ShieldCheck },
     { id: 'accounts', label: 'Accounts', icon: Wallet, badge: pendingExpenses },
+    { id: 'collections', label: 'Maintenance collections', icon: CircleDollarSign },
     { id: 'maintenance', label: 'Maintenance', icon: Wrench, badge: openRequests },
     { id: 'security', label: 'Gate & security', icon: Shield },
     { id: 'notices', label: 'Notices', icon: Bell },
@@ -638,15 +686,21 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   const isSecurityUser = currentMember?.role === 'Security'
   const canAccessSecurity = !session || ['Administrator', 'President', 'Secretary', 'Security', 'Member'].includes(currentMember?.role ?? '')
   const visibleSection: Section = isSecurityUser ? 'security'
-    : !canAccessSecurity && section === 'security' || !canViewMemberManagement && section === 'memberAdmin' ? 'overview'
+    : !canAccessSecurity && section === 'security'
+      || !canViewMemberManagement && section === 'memberAdmin'
+      || !canViewMaintenanceCollections && section === 'collections' ? 'overview'
       : section
   const pageTitle = visibleSection === 'overview'
     ? `Good morning, ${profileMember?.name.split(' ')[0] ?? 'Anita'}`
     : sectionInfo[visibleSection].title
   const visibleNav = isSecurityUser ? nav.filter((item) => item.id === 'security')
-    : nav.filter((item) => (canAccessSecurity || item.id !== 'security') && (canViewMemberManagement || item.id !== 'memberAdmin'))
+    : nav.filter((item) => (canAccessSecurity || item.id !== 'security')
+      && (canViewMemberManagement || item.id !== 'memberAdmin')
+      && (canViewMaintenanceCollections || item.id !== 'collections'))
   const goToSection = (next: Section) => {
-    if ((!canAccessSecurity && next === 'security') || (!canViewMemberManagement && next === 'memberAdmin')) return
+    if ((!canAccessSecurity && next === 'security')
+      || (!canViewMemberManagement && next === 'memberAdmin')
+      || (!canViewMaintenanceCollections && next === 'collections')) return
     setSection(next)
   }
   const displayName = profileMember?.name ?? (session?.user.email || 'Anita Shah')
@@ -694,6 +748,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
             <div><div className="eyebrow">MANTRA MANOR DUPLEX OWNERS SOCIETY <span>·</span> COMMUNITY PORTAL</div><h1>{pageTitle}</h1><p>{sectionInfo[visibleSection].subtitle}</p></div>
             <div className="heading-actions">
               {visibleSection === 'accounts' && !isReadOnlyMember && <button type="button" className="button button-primary" onClick={() => setModal('expense')}><Plus size={16} />Record expense</button>}
+              {visibleSection === 'collections' && canManageMaintenanceCollections && <button type="button" className="button button-primary" onClick={() => setModal('payment')}><Plus size={16} />Record payment</button>}
               {visibleSection === 'maintenance' && !isReadOnlyMember && <button type="button" className="button button-primary" onClick={() => setModal('maintenance')}><Plus size={16} />New request</button>}
               {visibleSection === 'security' && !isReadOnlyMember && <button type="button" className="button button-primary" onClick={() => setModal('visitor')}><Plus size={16} />Log visitor</button>}
               {visibleSection === 'notices' && !isReadOnlyMember && <button type="button" className="button button-primary" onClick={() => setModal('notice')}><Plus size={16} />New notice</button>}
@@ -709,6 +764,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
           {visibleSection === 'members' && <MembersPage members={data.members} profile={profileMember} canEditProfile={Boolean(profileMember && !isReadOnlyMember && currentMember?.role !== 'Security')} onEditProfile={() => setModal('profile')} />}
           {visibleSection === 'memberAdmin' && canViewMemberManagement && <MemberAdminPage members={data.members} currentMemberId={currentMember?.id} canManageMembers={canManageMembers} canAssignAdministrator={isAdministrator} onEdit={(member) => { setEditingMember(member); setModal('editMember') }} onApprove={approveMember} onConnectLogin={connectMemberLogin} />}
           {visibleSection === 'accounts' && <AccountsPage expenses={visibleExpenses} search={search} setSearch={setSearch} canReviewExpenses={!isReadOnlyMember} canAttachDocuments={canAttachExpenseDocuments} canViewDocuments={Boolean(session)} uploadingDocumentFor={uploadingReceiptFor} onAttachDocument={attachExpenseDocument} onViewDocument={viewExpenseDocument} onApprove={advanceExpense} onReject={rejectExpense} onShare={shareExpense} />}
+          {visibleSection === 'collections' && canViewMaintenanceCollections && <MaintenanceCollectionsPage payments={data.maintenancePayments} month={paymentMonth} canRecordPayments={canManageMaintenanceCollections} onMonthChange={setPaymentMonth} />}
           {visibleSection === 'maintenance' && <MaintenancePage requests={data.requests} readOnly={isReadOnlyMember} onAdvance={cycleMaintenance} />}
           {visibleSection === 'security' && <SecurityPage visitors={data.visitors} readOnly={isReadOnlyMember} onCheckout={checkoutVisitor} />}
           {visibleSection === 'notices' && <NoticesPage notices={data.notices} onShare={shareNotice} />}
@@ -725,6 +781,16 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
           <div className="form-row"><label><span>Vendor / payee</span><input name="vendor" maxLength={120} required /></label><label><span>Date</span><input name="date" type="date" defaultValue={today()} required /></label></div>
           <div className="approval-info"><ShieldCheck size={16} /><span>New expenses enter a two-step review: <b>Treasurer → President</b>. All members can view each stage.</span></div>
           <FormActions onCancel={() => setModal(null)} submit="Submit for review" />
+        </form>}
+        {modal === 'payment' && <form className="modal-form" onSubmit={addMaintenancePayment}>
+          <label><span>Member unit</span><select name="memberId" defaultValue="" required>
+            <option value="" disabled>Select a unit</option>
+            {data.members.map((member) => <option key={member.id} value={member.id}>{member.unit} - {member.name}</option>)}
+          </select></label>
+          <div className="form-row"><label><span>Billing month</span><input name="billingMonth" type="month" defaultValue={paymentMonth} required /></label><label><span>Amount received (INR)</span><input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required /></label></div>
+          <div className="form-row"><label><span>Date received</span><input name="receivedOn" type="date" defaultValue={today()} required /></label><label><span>Payment reference (optional)</span><input name="reference" maxLength={120} placeholder="UPI or bank reference" /></label></div>
+          <div className="approval-info"><CircleDollarSign size={16} /><span>Choose from society member profiles. Multiple payments for the same unit and month are allowed for installments.</span></div>
+          <FormActions onCancel={() => setModal(null)} submit="Record payment" />
         </form>}
         {modal === 'maintenance' && <form className="modal-form" onSubmit={addMaintenance}>
           <label><span>What needs attention?</span><input name="title" maxLength={140} placeholder="Describe the issue" required /></label>
@@ -870,6 +936,45 @@ function AccountsPage({ expenses, search, setSearch, canReviewExpenses, canAttac
   </>
 }
 
+function MaintenanceCollectionsPage({ payments, month, canRecordPayments, onMonthChange }: {
+  payments: MaintenancePayment[]
+  month: string
+  canRecordPayments: boolean
+  onMonthChange: (month: string) => void
+}) {
+  const isValidMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+  const monthPayments = isValidMonth ? payments.filter((payment) => payment.billingMonth === month) : []
+  const collectedAmount = monthPayments.reduce((total, payment) => total + payment.amount, 0)
+  const unitsPaid = new Set(monthPayments.map((payment) => payment.memberId)).size
+  const formattedMonth = isValidMonth
+    ? new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(`${month}-01T00:00:00`))
+    : 'Select a month'
+
+  return <>
+    <div className="accounts-summary">
+      <div><small>COLLECTED IN {formattedMonth.toUpperCase()}</small><b>{money(collectedAmount)}</b></div>
+      <div><small>PAYMENTS RECORDED</small><b>{monthPayments.length}</b></div>
+      <div><small>UNITS WITH PAYMENTS</small><b>{unitsPaid}</b></div>
+    </div>
+    <section className="panel table-panel">
+      <div className="table-toolbar">
+        <div><h2>Maintenance payment register</h2><p>Member contributions are recorded separately from expenses.</p></div>
+        <label className="search-input"><CalendarDays size={16} /><input type="month" aria-label="Filter payments by billing month" value={month} onChange={(event) => onMonthChange(event.target.value)} /></label>
+      </div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>UNIT / MEMBER</th><th>BILLING MONTH</th><th>DATE RECEIVED</th><th>AMOUNT</th><th>REFERENCE</th></tr></thead><tbody>
+        {monthPayments.map((payment) => <tr key={payment.id}>
+          <td><b>{payment.unit}</b><small>{payment.memberName}</small></td>
+          <td>{formattedMonth}</td>
+          <td>{dateLabel(payment.receivedOn)}</td>
+          <td><b>{money(payment.amount)}</b></td>
+          <td>{payment.reference || '—'}</td>
+        </tr>)}
+      </tbody></table>{monthPayments.length === 0 && <EmptyState title="No payments for this month" body={canRecordPayments ? 'Record a member contribution to start the monthly collection register.' : 'No member payments have been recorded for this month.'} />}</div>
+      <div className="register-note"><ShieldCheck size={15} /> Multiple entries per unit and month are supported for installment payments.</div>
+    </section>
+  </>
+}
+
 function MembersPage({ members, profile, canEditProfile, onEditProfile }: {
   members: Member[]
   profile: Member | null
@@ -992,8 +1097,8 @@ function FormActions({ onCancel, submit }: { onCancel: () => void; submit: strin
   return <div className="form-actions"><button type="button" className="button button-secondary" onClick={onCancel}>Cancel</button><button type="submit" className="button button-primary"><Check size={15} />{submit}</button></div>
 }
 
-function modalTitle(modal: 'expense' | 'maintenance' | 'visitor' | 'notice' | 'member' | 'editMember' | 'profile') {
-  const titles = { expense: 'Record a society expense', maintenance: 'Log maintenance request', visitor: 'Record visitor entry', notice: 'Publish a community notice', member: 'Add member profile', editMember: 'Edit member profile', profile: 'Edit my details' }
+function modalTitle(modal: 'expense' | 'payment' | 'maintenance' | 'visitor' | 'notice' | 'member' | 'editMember' | 'profile') {
+  const titles = { expense: 'Record a society expense', payment: 'Record maintenance payment', maintenance: 'Log maintenance request', visitor: 'Record visitor entry', notice: 'Publish a community notice', member: 'Add member profile', editMember: 'Edit member profile', profile: 'Edit my details' }
   return titles[modal]
 }
 

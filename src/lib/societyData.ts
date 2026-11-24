@@ -1,4 +1,4 @@
-import type { Expense, ExpenseStatus, MaintenanceRequest, Member, Notice, SocietyData, Visitor } from '../types'
+import type { Expense, ExpenseStatus, MaintenancePayment, MaintenanceRequest, Member, Notice, SocietyData, Visitor } from '../types'
 import { requireSupabase } from './supabase'
 
 const EXPENSE_DOCUMENT_BUCKET = 'expense-documents'
@@ -34,6 +34,19 @@ function mapExpense(row: Row, membersByUserId: Map<string, string>): Expense {
     receipt: typeof row.receipt_path === 'string' ? row.receipt_path : '',
     status: row.status as ExpenseStatus,
     submittedBy: membersByUserId.get(submitterId) ?? 'Society member',
+  }
+}
+
+function mapMaintenancePayment(row: Row): MaintenancePayment {
+  return {
+    id: String(row.id),
+    memberId: String(row.member_id),
+    memberName: String(row.member_name),
+    unit: String(row.unit_name),
+    billingMonth: String(row.billing_month).slice(0, 7),
+    amount: Number(row.amount),
+    receivedOn: String(row.received_on),
+    reference: typeof row.reference === 'string' ? row.reference : '',
   }
 }
 
@@ -81,15 +94,16 @@ function assertNoErrors(results: Array<{ error: { message: string; code?: string
 
 export async function loadSocietyData(userId: string): Promise<{ data: SocietyData; member: Member }> {
   const db = requireSupabase()
-  const [memberResult, membersResult, expensesResult, requestsResult, visitorsResult, noticesResult] = await Promise.all([
+  const [memberResult, membersResult, expensesResult, paymentsResult, requestsResult, visitorsResult, noticesResult] = await Promise.all([
     db.from('society_members').select('id,user_id,full_name,unit_name,email,phone,role,status').eq('user_id', userId).maybeSingle(),
     db.from('society_members').select('id,user_id,full_name,unit_name,email,phone,role,status').order('unit_name'),
     db.from('expenses').select('id,title,category,vendor,amount,expense_date,receipt_path,status,submitted_by').order('created_at', { ascending: false }),
+    db.from('maintenance_payments').select('id,member_id,member_name,unit_name,billing_month,amount,received_on,reference').order('received_on', { ascending: false }),
     db.from('maintenance_requests').select('id,title,location,priority,status,reported_by,created_at').order('created_at', { ascending: false }),
     db.from('security_visitors').select('id,visitor_name,purpose,visiting_unit,entry_at,checked_out_at').order('entry_at', { ascending: false }),
     db.from('community_notices').select('id,title,body,audience,created_at').order('created_at', { ascending: false }),
   ])
-  assertNoErrors([memberResult, membersResult, expensesResult, requestsResult, visitorsResult, noticesResult])
+  assertNoErrors([memberResult, membersResult, expensesResult, paymentsResult, requestsResult, visitorsResult, noticesResult])
   if (!memberResult.data) {
     throw new Error('This Google account is not linked to a society member. Ask an Administrator to provision your account, or ask the President or Secretary to add your confirmed Google email and approve your membership. The first Administrator must be linked using the setup guide.')
   }
@@ -105,12 +119,12 @@ export async function loadSocietyData(userId: string): Promise<{ data: SocietyDa
       .filter((row) => typeof row.user_id === 'string')
       .map((row) => [String(row.user_id), String(row.full_name)]),
   )
-
   return {
     member: mapMember(memberResult.data as Row),
     data: {
       members,
       expenses: (expensesResult.data ?? []).map((row) => mapExpense(row as Row, membersByUserId)),
+      maintenancePayments: (paymentsResult.data ?? []).map((row) => mapMaintenancePayment(row as Row)),
       requests: (requestsResult.data ?? []).map((row) => mapMaintenance(row as Row, membersByUserId)),
       visitors: (visitorsResult.data ?? []).map((row) => mapVisitor(row as Row)),
       notices: (noticesResult.data ?? []).map((row) => mapNotice(row as Row)),
@@ -190,6 +204,19 @@ export async function createMaintenanceRequest(request: Omit<MaintenanceRequest,
     title: request.title,
     location: request.location,
     priority: request.priority,
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function createMaintenancePayment(payment: Pick<MaintenancePayment, 'memberId' | 'memberName' | 'unit' | 'billingMonth' | 'amount' | 'receivedOn' | 'reference'>) {
+  const { error } = await requireSupabase().from('maintenance_payments').insert({
+    member_id: payment.memberId,
+    member_name: payment.memberName,
+    unit_name: payment.unit,
+    billing_month: `${payment.billingMonth}-01`,
+    amount: payment.amount,
+    received_on: payment.receivedOn,
+    reference: payment.reference || null,
   })
   if (error) throw new Error(error.message)
 }

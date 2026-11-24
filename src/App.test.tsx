@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   updateMyProfile: vi.fn(),
   checkoutVisitor: vi.fn(),
   createExpense: vi.fn(),
+  createMaintenancePayment: vi.fn(),
   createMaintenanceRequest: vi.fn(),
   createMember: vi.fn(),
   createNotice: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('./lib/supabase', () => ({
 vi.mock('./lib/societyData', () => ({
   checkoutVisitor: mocks.checkoutVisitor,
   createExpense: mocks.createExpense,
+  createMaintenancePayment: mocks.createMaintenancePayment,
   createMaintenanceRequest: mocks.createMaintenanceRequest,
   createMember: mocks.createMember,
   createNotice: mocks.createNotice,
@@ -130,6 +132,7 @@ function makeData(member: Member): SocietyData {
       status: 'submitted',
       submittedBy: member.name,
     }],
+    maintenancePayments: [],
     requests: [{
       id: 'request-1',
       title: 'Test maintenance request',
@@ -193,6 +196,7 @@ beforeEach(() => {
     data: makeData(activeMember),
   }))
   mocks.recordSocietyLogin.mockResolvedValue(undefined)
+  mocks.createMaintenancePayment.mockResolvedValue(undefined)
   mocks.updateMyProfile.mockResolvedValue(undefined)
   mocks.updateSocietyMember.mockResolvedValue(undefined)
   mocks.provisionAuthMember.mockResolvedValue(undefined)
@@ -260,9 +264,10 @@ describe('MMDOS application access', () => {
     render(<App />)
 
     const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
-    for (const moduleName of ['Overview', 'Members', 'Manage members', 'Accounts', 'Maintenance', 'Gate & security', 'Notices', 'Reports']) {
+    for (const moduleName of ['Overview', 'Members', 'Manage members', 'Accounts', 'Maintenance collections', 'Gate & security', 'Notices', 'Reports']) {
       expect(within(navigation).getByRole('button', { name: new RegExp(moduleName) })).toBeInTheDocument()
     }
+    expect(within(navigation).getByText('Maintenance', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText('Across 102 duplex homes')).toBeInTheDocument()
 
     fireEvent.click(within(navigation).getByRole('button', { name: 'Members' }))
@@ -277,7 +282,11 @@ describe('MMDOS application access', () => {
     expect(screen.queryByRole('button', { name: 'Return expense-1' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Attach document for expense-1')).not.toBeInTheDocument()
 
-    fireEvent.click(within(navigation).getByRole('button', { name: /Maintenance/ }))
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Maintenance collections' }))
+    expect(await screen.findByRole('heading', { name: 'Maintenance payment register' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(navigation).getByText('Maintenance', { selector: 'span' }))
     expect(await screen.findByRole('heading', { name: 'Maintenance requests' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'New request' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Start work' })).not.toBeInTheDocument()
@@ -316,6 +325,39 @@ describe('MMDOS application access', () => {
 
     await waitFor(() => expect(mocks.uploadExpenseDocument).toHaveBeenCalledWith('expense-1', file))
     expect(await screen.findByRole('status')).toHaveTextContent('Supporting document attached to the expense.')
+  })
+
+  it('lets the Treasurer record payments using units loaded from society members', async () => {
+    activeMember = { ...treasurerMember, unit: 'A-01' }
+    mocks.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null })
+    render(<App />)
+
+    const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Maintenance collections' }))
+    expect(await screen.findByRole('heading', { name: 'Maintenance payment register' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Record payment' }))
+
+    const dialog = screen.getByRole('dialog')
+    const memberUnit = within(dialog).getByLabelText('Member unit')
+    expect(within(memberUnit).getByRole('option', { name: 'A-02 - Riya Member' })).toBeInTheDocument()
+    fireEvent.change(memberUnit, { target: { value: regularMember.id } })
+    fireEvent.change(within(dialog).getByLabelText('Billing month'), { target: { value: '2026-10' } })
+    fireEvent.change(within(dialog).getByLabelText('Amount received (INR)'), { target: { value: '4500' } })
+    fireEvent.change(within(dialog).getByLabelText('Date received'), { target: { value: '2026-11-20' } })
+    fireEvent.change(within(dialog).getByLabelText('Payment reference (optional)'), { target: { value: 'UPI-0001' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Record payment' }))
+
+    await waitFor(() => expect(mocks.createMaintenancePayment).toHaveBeenCalledWith({
+      id: expect.any(String),
+      memberId: regularMember.id,
+      memberName: regularMember.name,
+      unit: regularMember.unit,
+      billingMonth: '2026-10',
+      amount: 4500,
+      receivedOn: '2026-11-20',
+      reference: 'UPI-0001',
+    }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Maintenance payment recorded.')
   })
 
   it('lets Presidents manage another member’s profile and role through the admin page', async () => {
@@ -391,9 +433,11 @@ describe('MMDOS application access', () => {
     render(<App />)
 
     const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
-    for (const moduleName of ['Overview', 'Members', 'Manage members', 'Accounts', 'Maintenance', 'Gate & security', 'Notices', 'Reports']) {
+    for (const moduleName of ['Overview', 'Members', 'Manage members', 'Accounts', 'Gate & security', 'Notices', 'Reports']) {
       expect(within(navigation).getByRole('button', { name: new RegExp(moduleName) })).toBeInTheDocument()
     }
+    expect(within(navigation).getByText('Maintenance', { selector: 'span' })).toBeInTheDocument()
+    expect(within(navigation).getByRole('button', { name: 'Maintenance collections' })).toBeInTheDocument()
 
     fireEvent.click(within(navigation).getByRole('button', { name: /Accounts/ }))
     expect(await screen.findByText('Confidential test expense')).toBeInTheDocument()

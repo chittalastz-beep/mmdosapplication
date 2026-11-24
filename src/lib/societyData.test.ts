@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createMaintenancePayment,
   createMember,
   getExpenseDocumentUrl,
   loadSocietyData,
@@ -79,6 +80,29 @@ describe('society data services', () => {
       member_unit: 'B-05',
       member_email: 'new@example.com',
       member_phone: null,
+    })
+  })
+
+  it('stores the billing month as its first date and normalizes an empty reference to null', async () => {
+    await createMaintenancePayment({
+      memberId: 'member-1',
+      memberName: 'Riya Member',
+      unit: 'A-02',
+      billingMonth: '2026-11',
+      amount: 4500,
+      receivedOn: '2026-11-20',
+      reference: '',
+    })
+
+    expect(mocks.from).toHaveBeenCalledWith('maintenance_payments')
+    expect(mocks.insert).toHaveBeenCalledWith({
+      member_id: 'member-1',
+      member_name: 'Riya Member',
+      unit_name: 'A-02',
+      billing_month: '2026-11-01',
+      amount: 4500,
+      received_on: '2026-11-20',
+      reference: null,
     })
   })
 
@@ -265,6 +289,16 @@ describe('society data services', () => {
         status: 'submitted',
         submitted_by: 'user-1',
       }],
+      maintenance_payments: [{
+        id: 'payment-1',
+        member_id: 'member-1',
+        member_name: 'Riya Member',
+        unit_name: 'A-02',
+        billing_month: '2026-11-01',
+        amount: 4500,
+        received_on: '2026-11-20',
+        reference: 'UPI-0001',
+      }],
       maintenance_requests: [{
         id: 'request-1',
         title: 'Leaking pipe',
@@ -317,6 +351,16 @@ describe('society data services', () => {
       id: 'expense-1',
       submittedBy: 'Riya Member',
       receipt: '',
+    })
+    expect(result.data.maintenancePayments[0]).toMatchObject({
+      id: 'payment-1',
+      memberId: 'member-1',
+      memberName: 'Riya Member',
+      unit: 'A-02',
+      billingMonth: '2026-11',
+      amount: 4500,
+      receivedOn: '2026-11-20',
+      reference: 'UPI-0001',
     })
     expect(result.data.requests[0]).toMatchObject({ reportedBy: 'Riya Member', date: '2026-11-20' })
     expect(result.data.visitors[0]).toMatchObject({ name: 'Delivery person', status: 'Inside' })

@@ -22,6 +22,17 @@ export type MaintenanceRequest = {
   date: string
 }
 
+export type MaintenancePayment = {
+  id: string
+  memberId: string
+  memberName: string
+  unit: string
+  billingMonth: string
+  amount: number
+  receivedOn: string
+  reference: string
+}
+
 export type Visitor = {
   id: string
   name: string
@@ -52,6 +63,7 @@ export type Member = {
 
 export type SocietyData = {
   expenses: Expense[]
+  maintenancePayments: MaintenancePayment[]
   requests: MaintenanceRequest[]
   visitors: Visitor[]
   notices: Notice[]

@@ -73,13 +73,14 @@ The login screen uses Google OAuth. Configure the Google provider and redirect U
 
 ### Member and role administration
 
-The first Administrator must be bootstrapped by an authorized project operator using SQL after migration 007 is applied; see [SUPABASE_SETUP.md](./SUPABASE_SETUP.md). Administrators can manage society accounts and roles only. They can create other Administrators but cannot access financial, report, maintenance, notice, or visitor data.
+The first Administrator must be bootstrapped by an authorized project operator using SQL after migration 007 is applied; see [SUPABASE_SETUP.md](./SUPABASE_SETUP.md). Administrators have full application access, including financial, report, maintenance, notice, and visitor data. They can also manage society accounts and roles and create other Administrators.
 
 - An Administrator opens **Manage members → Add member** to create or locate a Supabase Auth user, link its society profile, choose a role, and activate access immediately.
 - A President or Secretary creates/locates and confirms the member's Google Auth email first, then adds a pending profile and approves the role through **Manage members**.
 - Use **Edit** on another member row to update their name, unit, contact email, or role. The linked Google Auth identity and membership status cannot be changed through this page. An Administrator cannot edit their own role.
 - Active Member accounts can read all application modules, including visitor logs and the member account directory, but cannot create or change application records. Apply migration 009; database policies and the profile-update RPC enforce this restriction independently of the interface.
 - The Administrator provisioning flow uses the `admin-provision-member` Edge Function. Apply migration 007, then deploy the function and set `APP_ALLOWED_ORIGINS` as documented in [SUPABASE_SETUP.md](./SUPABASE_SETUP.md). The function verifies an active Administrator's Google session and uses server-side `SUPABASE_SERVICE_ROLE_KEY`; never put that key in frontend code, `VITE_` variables, or logs. Keep function JWT verification enabled.
+- Active society members can view **Maintenance collections**; only Treasurers and Administrators can record payments. The unit selector uses society member profiles from the database, and RLS enforces read and write access. Apply migration 013 before deploying the feature.
 - Have the member sign in with the same verified Google account on their own device and confirm their expected access.
 
 Changes to Auth accounts, society roles, or membership records made directly in Supabase bypass the normal application workflow and should be restricted to an authorized operator, reviewed, and recorded. Never edit production records just to test a feature.

@@ -36,14 +36,17 @@ In the Supabase project, open **SQL Editor**. For a new project, run each migrat
 10. `supabase/migrations/202611230006_expense_documents.sql`
 11. `supabase/migrations/202611240001_administrator_full_access.sql`
 12. `supabase/migrations/202611240002_member_update_rpc_compatibility.sql`
+13. `supabase/migrations/202611240003_maintenance_payments.sql`
 
 Wait for each migration to finish successfully before running the next. The migrations create the society tables, row-level security (RLS) policies, and role-checked functions used by the app. Migration 004 enables President/Secretary member profile and role editing. Migration 005 restricts database access to Google-authenticated users and links new member profiles to confirmed Auth emails. Migration 006 grants authenticated sessions the table privilege needed to query visitor records; RLS continues to restrict which rows are returned.
 
-Migration 007 adds the Administrator role, authorizes Administrators to manage society member roles, and restricts Auth-user lookup to the server-side provisioning function. Migration 008 grants the server-side `service_role` only the `SELECT`, `INSERT`, and `UPDATE` privileges it needs on `society_members`. Migration 009 gives active Members read-only access to all application modules, including visitor logs, and removes their ability to create or update records. Migration 010 creates a private expense-document bucket and short-lived signed links. Migration 011 grants Administrators full in-app module access, exposes suspended profiles for account recovery, and enables editing member phone numbers. Migration 012 preserves the previous five-argument member-update RPC for clients still awaiting a frontend refresh and reloads the PostgREST schema cache. Apply only migrations that have not already run, in ascending order; do not rerun completed migrations. Migration 002 can be run whether or not login-activity additions were already included in migration 001. Record which migration files have been applied.
+Migration 007 adds the Administrator role, authorizes Administrators to manage society member roles, and restricts Auth-user lookup to the server-side provisioning function. Migration 008 grants the server-side `service_role` only the `SELECT`, `INSERT`, and `UPDATE` privileges it needs on `society_members`. Migration 009 gives active Members read-only access to all application modules, including visitor logs, and removes their ability to create or update records. Migration 010 creates a private expense-document bucket and short-lived signed links. Migration 011 grants Administrators full in-app module access, exposes suspended profiles for account recovery, and enables editing member phone numbers. Migration 012 preserves the previous five-argument member-update RPC for clients still awaiting a frontend refresh and reloads the PostgREST schema cache. Migration 013 creates the monthly maintenance payment register, permits active society roles to view it, and restricts payment entry to active Treasurers and Administrators. Apply only migrations that have not already run, in ascending order; do not rerun completed migrations. Migration 002 can be run whether or not login-activity additions were already included in migration 001. Record which migration files have been applied.
 
 The app does not apply migrations automatically. The SQL files in the repository have not been applied to your Supabase project by this setup guide.
 
 For an existing deployment that has migrations 001–011 applied, run only `supabase/migrations/202611240002_member_update_rpc_compatibility.sql` in the Supabase SQL Editor to support both older and current frontend RPC calls. It sends a PostgREST schema-cache reload notification. No Edge Function redeployment is required for this compatibility fix.
+
+For an existing deployment with migrations 001–012 applied, run only `supabase/migrations/202611240003_maintenance_payments.sql` in the Supabase SQL Editor before deploying the maintenance collections frontend.
 
 ## 3. Configure Google sign-in
 
@@ -124,6 +127,10 @@ Confirm that `admin-provision-member` appears in the Supabase Dashboard under **
 For an existing unlinked profile, use **Set up sign-in** to create or locate its confirmed Supabase Auth user, link the profile, and activate access. Administrators can use **Activate access** to reactivate an inactive linked profile. The email must match the member's verified Google account. An existing profile already linked to a different Auth user cannot be reassigned in this flow. Use **Edit** to update another member's name, unit, contact mobile, contact email, or role; the contact email does not change the Google Auth email. An Administrator can edit their own contact details but cannot change their own role.
 
 Pending and suspended members cannot access society records. Active `Member` accounts can view every application module, including visitor logs and the member account directory, but cannot create, edit, approve, or check out records. Apply migration 009 to enforce these read-only permissions in the database. Apply migration 011 to grant Administrators full application access. Assign Security personnel the `Security` role; the app then limits their navigation to Gate & security.
+
+## 7.1 Record monthly maintenance collections
+
+Active society members can view **Maintenance collections**; only Treasurers and Administrators can choose **Record payment**. Select a unit from the society member list loaded from Supabase, then enter the billing month, amount received, date, and optional payment reference. Multiple payments for the same unit and month are allowed for installments. The register is separate from expense records. Apply migration 013 before deploying this feature.
 
 ## 8. Configure the deployed app
 
