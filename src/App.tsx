@@ -501,7 +501,15 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
     }
     const saved = await commitChange(
       (current) => ({ ...current, members: [...current.members, member] }),
-      () => isAdministrator ? provisionAuthMember(member) : saveMember(member),
+      () => isAdministrator
+        ? provisionAuthMember({
+          name: member.name,
+          unit: member.unit,
+          role: member.role,
+          phone: member.phone,
+          email: member.email,
+        })
+        : saveMember(member),
       isAdministrator ? 'Google Auth user created and society access enabled.' : 'Member profile saved and is awaiting administrator approval.',
     )
     if (saved) setModal(null)

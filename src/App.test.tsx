@@ -408,13 +408,11 @@ describe('MMDOS application access', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save member' }))
 
     await waitFor(() => expect(mocks.provisionAuthMember).toHaveBeenCalledWith({
-      id: expect.any(String),
       name: 'New Administrator',
       unit: 'E-01',
       role: 'Administrator',
       phone: '',
       email: 'new-admin@example.com',
-      status: 'Active',
     }))
     expect(mocks.createMember).not.toHaveBeenCalled()
   })
