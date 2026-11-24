@@ -17,7 +17,8 @@ function mapMember(row: Row): Member {
     role: String(row.role).replace(/^\w/, (letter) => letter.toUpperCase()),
     phone: typeof row.phone === 'string' ? row.phone : '',
     email: typeof row.email === 'string' ? row.email : undefined,
-    status: row.status === 'active' ? 'Active' : 'Pending',
+    authLinked: typeof row.user_id === 'string',
+    status: row.status === 'active' ? 'Active' : row.status === 'suspended' ? 'Suspended' : 'Pending',
   }
 }
 
@@ -93,7 +94,9 @@ export async function loadSocietyData(userId: string): Promise<{ data: SocietyDa
     throw new Error('This Google account is not linked to a society member. Ask an Administrator to provision your account, or ask the President or Secretary to add your confirmed Google email and approve your membership. The first Administrator must be linked using the setup guide.')
   }
   if (memberResult.data.status !== 'active') {
-    throw new Error('Your society membership is awaiting administrator approval.')
+    throw new Error(memberResult.data.status === 'suspended'
+      ? 'Your society access is suspended. Contact the Administrator to restore access.'
+      : 'Your society membership is awaiting administrator approval.')
   }
 
   const members = (membersResult.data ?? []).map((row) => mapMember(row as Row))
@@ -233,6 +236,7 @@ export async function createMember(member: Omit<Member, 'id' | 'status' | 'email
 }
 
 export async function provisionAuthMember(member: {
+  id?: string
   name: string
   unit: string
   email: string
@@ -241,6 +245,7 @@ export async function provisionAuthMember(member: {
 }) {
   const { error } = await requireSupabase().functions.invoke('admin-provision-member', {
     body: {
+      ...(member.id ? { memberId: member.id } : {}),
       fullName: member.name,
       unitName: member.unit,
       email: member.email,
@@ -285,6 +290,7 @@ export async function updateSocietyMember(memberId: string, member: {
   name: string
   unit: string
   email?: string
+  phone: string
   role: string
 }) {
   const { error } = await requireSupabase().rpc('update_society_member', {
@@ -292,6 +298,7 @@ export async function updateSocietyMember(memberId: string, member: {
     member_name: member.name,
     member_unit: member.unit,
     member_email: member.email ?? null,
+    member_phone: member.phone || null,
     assigned_role: member.role.toLowerCase(),
   })
   if (error) throw new Error(error.message)

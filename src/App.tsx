@@ -251,6 +251,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   const [toast, setToast] = useState('')
   const [mobileMenu, setMobileMenu] = useState(false)
   const [uploadingReceiptFor, setUploadingReceiptFor] = useState<string | null>(null)
+  const isAdministrator = currentMember?.role === 'Administrator'
 
   const refreshBackend = async () => {
     if (!session) return
@@ -374,8 +375,8 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   }
 
   const attachExpenseDocument = async (expenseId: string, file: File) => {
-    if (!session || currentMember?.role !== 'Treasurer') {
-      notify('Only the Treasurer can attach expense documents.')
+    if (!session || (!isAdministrator && currentMember?.role !== 'Treasurer')) {
+      notify('Only the Treasurer or Administrator can attach expense documents.')
       return
     }
     setUploadingReceiptFor(expenseId)
@@ -514,7 +515,8 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
       name: String(form.get('name')).trim(),
       unit: String(form.get('unit')).trim().toUpperCase(),
       email: String(form.get('email')).trim() || undefined,
-      role: roleLabel(String(form.get('role'))),
+      phone: String(form.get('phone')).trim(),
+      role: roleLabel(String(form.get('role') ?? editingMember.role)),
     }
     if (!member.name || !member.unit) return
     const saved = await commitChange(
@@ -529,6 +531,28 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
       setModal(null)
       setEditingMember(null)
     }
+  }
+
+  const connectMemberLogin = async (member: Member) => {
+    if (!session || !isAdministrator || !member.email) return
+    const email = member.email
+    await commitChange(
+      (current) => ({
+        ...current,
+        members: current.members.map((item) => item.id === member.id
+          ? { ...item, authLinked: true, status: 'Active' }
+          : item),
+      }),
+      () => provisionAuthMember({
+        id: member.id,
+        name: member.name,
+        unit: member.unit,
+        email,
+        phone: member.phone,
+        role: member.role,
+      }),
+      'Google sign-in account linked and member access activated.',
+    )
   }
 
   const updateOwnProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -588,8 +612,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
     `${expense.title} ${expense.category} ${expense.vendor} ${expense.id}`.toLowerCase().includes(search.toLowerCase()),
   ), [data.expenses, search])
 
-  const isAdministrator = currentMember?.role === 'Administrator'
-  const canAttachExpenseDocuments = Boolean(session && currentMember?.role === 'Treasurer')
+  const canAttachExpenseDocuments = Boolean(session && (isAdministrator || currentMember?.role === 'Treasurer'))
   const isReadOnlyMember = currentMember?.role === 'Member'
   const canManageMembers = !session || isAdministrator || currentMember?.role === 'President' || currentMember?.role === 'Secretary'
   const canViewMemberManagement = canManageMembers || isReadOnlyMember
@@ -605,19 +628,16 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
   ]
   const profileMember = currentMember ?? data.members.find((member) => member.status === 'Active') ?? null
   const isSecurityUser = currentMember?.role === 'Security'
-  const canAccessSecurity = !session || ['President', 'Secretary', 'Security', 'Member'].includes(currentMember?.role ?? '')
-  const visibleSection: Section = isAdministrator ? 'memberAdmin'
-    : isSecurityUser ? 'security'
+  const canAccessSecurity = !session || ['Administrator', 'President', 'Secretary', 'Security', 'Member'].includes(currentMember?.role ?? '')
+  const visibleSection: Section = isSecurityUser ? 'security'
     : !canAccessSecurity && section === 'security' || !canViewMemberManagement && section === 'memberAdmin' ? 'overview'
       : section
   const pageTitle = visibleSection === 'overview'
     ? `Good morning, ${profileMember?.name.split(' ')[0] ?? 'Anita'}`
     : sectionInfo[visibleSection].title
-  const visibleNav = isAdministrator ? nav.filter((item) => item.id === 'memberAdmin')
-    : isSecurityUser ? nav.filter((item) => item.id === 'security')
+  const visibleNav = isSecurityUser ? nav.filter((item) => item.id === 'security')
     : nav.filter((item) => (canAccessSecurity || item.id !== 'security') && (canViewMemberManagement || item.id !== 'memberAdmin'))
   const goToSection = (next: Section) => {
-    if (isAdministrator && next !== 'memberAdmin') return
     if ((!canAccessSecurity && next === 'security') || (!canViewMemberManagement && next === 'memberAdmin')) return
     setSection(next)
   }
@@ -658,7 +678,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
         <header className="topbar">
           <button type="button" className="icon-button menu-toggle" aria-label="Open menu" onClick={() => setMobileMenu(true)}><Menu size={20} /></button>
           <div className="crumb">Mantra Manor <span>/</span> <b>{visibleSection === 'overview' ? 'Overview' : pageTitle}</b></div>
-          <div className="topbar-right"><span className={`demo-pill ${session ? 'live-pill' : ''}`}><i />{session ? 'LIVE SUPABASE' : 'DEMO DATA'}</span><span className="today-date"><CalendarDays size={15} />{new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }).format(renderDate)}</span>{!isSecurityUser && !isAdministrator && <button type="button" className="icon-button bell-button" aria-label={`${pendingExpenses} pending approvals`} onClick={() => setSection('accounts')}><Bell size={18} />{pendingExpenses > 0 && <i />}</button>}</div>
+          <div className="topbar-right"><span className={`demo-pill ${session ? 'live-pill' : ''}`}><i />{session ? 'LIVE SUPABASE' : 'DEMO DATA'}</span><span className="today-date"><CalendarDays size={15} />{new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }).format(renderDate)}</span>{!isSecurityUser && <button type="button" className="icon-button bell-button" aria-label={`${pendingExpenses} pending approvals`} onClick={() => setSection('accounts')}><Bell size={18} />{pendingExpenses > 0 && <i />}</button>}</div>
         </header>
 
         <div className="content">
@@ -679,7 +699,7 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
 
           {visibleSection === 'overview' && <Overview data={data} outstanding={outstanding} monthTotal={currentMonthExpenses} pending={pendingExpenses} openRequests={openRequests} canReviewExpenses={!isReadOnlyMember} onGo={goToSection} onApprove={advanceExpense} onShare={shareExpense} />}
           {visibleSection === 'members' && <MembersPage members={data.members} profile={profileMember} canEditProfile={Boolean(profileMember && !isReadOnlyMember && currentMember?.role !== 'Security')} onEditProfile={() => setModal('profile')} />}
-          {visibleSection === 'memberAdmin' && canViewMemberManagement && <MemberAdminPage members={data.members} currentMemberId={currentMember?.id} canManageMembers={canManageMembers} canAssignAdministrator={isAdministrator} onEdit={(member) => { setEditingMember(member); setModal('editMember') }} onApprove={approveMember} />}
+          {visibleSection === 'memberAdmin' && canViewMemberManagement && <MemberAdminPage members={data.members} currentMemberId={currentMember?.id} canManageMembers={canManageMembers} canAssignAdministrator={isAdministrator} onEdit={(member) => { setEditingMember(member); setModal('editMember') }} onApprove={approveMember} onConnectLogin={connectMemberLogin} />}
           {visibleSection === 'accounts' && <AccountsPage expenses={visibleExpenses} search={search} setSearch={setSearch} canReviewExpenses={!isReadOnlyMember} canAttachDocuments={canAttachExpenseDocuments} canViewDocuments={Boolean(session)} uploadingDocumentFor={uploadingReceiptFor} onAttachDocument={attachExpenseDocument} onViewDocument={viewExpenseDocument} onApprove={advanceExpense} onReject={rejectExpense} onShare={shareExpense} />}
           {visibleSection === 'maintenance' && <MaintenancePage requests={data.requests} readOnly={isReadOnlyMember} onAdvance={cycleMaintenance} />}
           {visibleSection === 'security' && <SecurityPage visitors={data.visitors} readOnly={isReadOnlyMember} onCheckout={checkoutVisitor} />}
@@ -731,12 +751,14 @@ function SocietyWorkspace({ session, onSignOut, loginNotice }: { session: Sessio
         {modal === 'editMember' && editingMember && <form className="modal-form" onSubmit={editSocietyMember}>
           <label><span>Member name</span><input name="name" autoComplete="name" maxLength={120} defaultValue={editingMember.name} required /></label>
           <label><span>Duplex unit</span><input name="unit" maxLength={20} defaultValue={editingMember.unit} required /></label>
-          <label><span>Contact mobile (managed by society)</span><input type="tel" value={editingMember.phone} readOnly /></label>
+          <label><span>Contact mobile number</span><input name="phone" type="tel" autoComplete="tel" maxLength={32} defaultValue={editingMember.phone} /></label>
           <label><span>Contact email</span><input name="email" type="email" autoComplete="email" defaultValue={editingMember.email ?? ''} /></label>
-          <label><span>Society role</span><select name="role" defaultValue={editingMember.role.toLowerCase()} required>
-            <option value="member">Member</option><option value="treasurer">Treasurer</option><option value="secretary">Secretary</option><option value="president">President</option><option value="security">Security</option>{isAdministrator && <option value="administrator">Administrator</option>}
-          </select></label>
-          <div className="approval-info"><Shield size={16} /><span>Changing a role updates the member’s application access. The linked Google Auth identity and membership status are not changed here.</span></div>
+          {isAdministrator && editingMember.id === currentMember?.id
+            ? <><input type="hidden" name="role" value={editingMember.role.toLowerCase()} /><label><span>Society role</span><input value={editingMember.role} readOnly /></label></>
+            : <label><span>Society role</span><select name="role" defaultValue={editingMember.role.toLowerCase()} required>
+              <option value="member">Member</option><option value="treasurer">Treasurer</option><option value="secretary">Secretary</option><option value="president">President</option><option value="security">Security</option>{isAdministrator && <option value="administrator">Administrator</option>}
+            </select></label>}
+          <div className="approval-info"><Shield size={16} /><span>The contact email and mobile number are profile details. Google sign-in uses the Auth email already linked to this member; changing the contact email does not change the sign-in identity. Use “Set up sign-in” for an unlinked member.</span></div>
           <FormActions onCancel={() => { setModal(null); setEditingMember(null) }} submit="Save member changes" />
         </form>}
         {modal === 'profile' && profileMember && <form className="modal-form" onSubmit={updateOwnProfile}>
@@ -856,34 +878,36 @@ function MembersPage({ members, profile, canEditProfile, onEditProfile }: {
   </>
 }
 
-function MemberAdminPage({ members, currentMemberId, canManageMembers, canAssignAdministrator, onEdit, onApprove }: {
+function MemberAdminPage({ members, currentMemberId, canManageMembers, canAssignAdministrator, onEdit, onApprove, onConnectLogin }: {
   members: Member[]
   currentMemberId?: string
   canManageMembers: boolean
   canAssignAdministrator: boolean
   onEdit: (member: Member) => void
   onApprove: (id: string, role: string) => void
+  onConnectLogin: (member: Member) => void
 }) {
   const [roles, setRoles] = useState<Record<string, string>>({})
   return <>
     <div className="approval-info"><Shield size={16} /><span>{canManageMembers ? 'Manage verified Google accounts and society roles. Administrators can create Auth users and activate their selected role; President and Secretary additions remain pending approval.' : 'Read-only view of active society member accounts.'}</span></div>
     <section className="panel table-panel"><div className="table-toolbar"><div><h2>Member accounts</h2><p>{canManageMembers ? 'Edit member details and roles. Only active accounts can access society data.' : 'Member profiles are available to view only.'}</p></div><span className="data-count">{members.length} profiles</span></div>
       <div className="table-scroll"><table className="data-table members-table"><thead><tr><th>MEMBER</th><th>UNIT</th><th>ROLE</th><th>MOBILE</th><th>STATUS</th><th>ADMIN ACTION</th></tr></thead><tbody>{members.map((member, index) => <tr key={member.id}>
-        <td><div className="member-cell"><span className={`member-avatar avatar-${index % 4}`}>{member.name.split(' ').map((part) => part[0]).join('')}</span><b>{member.name}</b><small>{member.email ?? 'No contact email'}</small></div></td>
+        <td><div className="member-cell"><span className={`member-avatar avatar-${index % 4}`}>{member.name.split(' ').map((part) => part[0]).join('')}</span><b>{member.name}</b><small>{member.email ?? 'No contact email'}{member.authLinked !== undefined ? ` · ${member.authLinked ? 'Sign-in linked' : 'Sign-in not linked'}` : ''}</small></div></td>
         <td>{member.unit}</td><td><span className="role-pill">{member.role}</span></td><td>{member.phone}</td><td><span className="active-member"><i />{member.status}</span></td>
-        <td><div className="member-review">{canManageMembers && member.status === 'Pending' && <>
+        <td><div className="member-review">{canManageMembers && member.status === 'Pending' && member.authLinked !== false && <>
           <select aria-label={`Assign role to ${member.name}`} value={roles[member.id] ?? member.role.toLowerCase()} onChange={(event) => setRoles((current) => ({ ...current, [member.id]: event.target.value }))}>
             <option value="member">Member</option><option value="treasurer">Treasurer</option><option value="secretary">Secretary</option><option value="president">President</option><option value="security">Security</option>{canAssignAdministrator && <option value="administrator">Administrator</option>}
           </select>
           <button type="button" className="button button-secondary small-button" onClick={() => onApprove(member.id, roles[member.id] ?? member.role.toLowerCase())}>Approve</button>
         </>}
-        {!canManageMembers
-          ? null
-          : member.id === currentMemberId
-          ? <span className="panel-kicker">Your profile</span>
-          : member.role === 'Administrator' && !canAssignAdministrator
-            ? <span className="panel-kicker">Administrator account</span>
-          : <button type="button" className="button button-secondary small-button" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)}>Edit</button>}
+        {canManageMembers && <>
+          {member.id === currentMemberId && !canAssignAdministrator
+            ? <span className="panel-kicker">Your profile</span>
+            : member.role === 'Administrator' && !canAssignAdministrator
+              ? <span className="panel-kicker">Administrator account</span>
+              : <button type="button" className="button button-secondary small-button" aria-label={`Edit ${member.name}`} onClick={() => onEdit(member)}>Edit</button>}
+          {canAssignAdministrator && member.email && (member.authLinked === false || member.status !== 'Active') && <button type="button" className="button button-secondary small-button" aria-label={`${member.authLinked === false ? 'Set up sign-in for' : 'Activate access for'} ${member.name}`} onClick={() => onConnectLogin(member)}>{member.authLinked === false ? 'Set up sign-in' : 'Activate access'}</button>}
+        </>}
         </div></td>
       </tr>)}</tbody></table></div>
     </section>

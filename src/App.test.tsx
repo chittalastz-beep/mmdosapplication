@@ -59,6 +59,7 @@ const regularMember: Member = {
   role: 'Member',
   phone: '+919876543210',
   email: 'riya@example.com',
+  authLinked: true,
   status: 'Active',
 }
 
@@ -69,6 +70,7 @@ const securityMember: Member = {
   role: 'Security',
   phone: '+919876543211',
   email: undefined,
+  authLinked: true,
 }
 
 const presidentMember: Member = {
@@ -108,8 +110,11 @@ const pendingMember: Member = {
   name: 'Pending Resident',
   unit: 'D-08',
   phone: '+919876543214',
+  authLinked: true,
   status: 'Pending',
 }
+
+const unlinkedPendingMember: Member = { ...pendingMember, authLinked: false }
 
 function makeData(member: Member): SocietyData {
   return {
@@ -329,6 +334,7 @@ describe('MMDOS application access', () => {
     expect(within(screen.getByLabelText('Society role')).queryByRole('option', { name: 'Administrator' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Member name'), { target: { value: 'Riya Revised' } })
     fireEvent.change(screen.getByLabelText('Duplex unit'), { target: { value: 'C-07' } })
+    fireEvent.change(screen.getByLabelText('Contact mobile number'), { target: { value: '+919876543299' } })
     fireEvent.change(screen.getByLabelText('Society role'), { target: { value: 'treasurer' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save member changes' }))
 
@@ -336,6 +342,7 @@ describe('MMDOS application access', () => {
       name: 'Riya Revised',
       unit: 'C-07',
       email: 'riya@example.com',
+      phone: '+919876543299',
       role: 'Treasurer',
     }))
 
@@ -378,16 +385,21 @@ describe('MMDOS application access', () => {
     expect(within(navigation).getByRole('button', { name: 'Manage members' })).toBeInTheDocument()
   })
 
-  it('limits Administrators to member management and provisions the selected role', async () => {
+  it('gives Administrators full app access and lets them provision member accounts', async () => {
     activeMember = administratorMember
     mocks.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null })
     render(<App />)
 
     const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
-    expect(within(navigation).getAllByRole('button')).toHaveLength(1)
-    expect(within(navigation).getByRole('button', { name: 'Manage members' })).toBeInTheDocument()
-    expect(screen.queryByText('Confidential test expense')).not.toBeInTheDocument()
+    for (const moduleName of ['Overview', 'Members', 'Manage members', 'Accounts', 'Maintenance', 'Gate & security', 'Notices', 'Reports']) {
+      expect(within(navigation).getByRole('button', { name: new RegExp(moduleName) })).toBeInTheDocument()
+    }
 
+    fireEvent.click(within(navigation).getByRole('button', { name: /Accounts/ }))
+    expect(await screen.findByText('Confidential test expense')).toBeInTheDocument()
+    expect(screen.getByLabelText('Attach document for expense-1')).toBeInTheDocument()
+
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Manage members' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add member' }))
     fireEvent.change(screen.getByLabelText('Member name'), { target: { value: 'New Administrator' } })
     fireEvent.change(screen.getByLabelText('Duplex unit'), { target: { value: 'E-01' } })
@@ -405,6 +417,50 @@ describe('MMDOS application access', () => {
       status: 'Active',
     }))
     expect(mocks.createMember).not.toHaveBeenCalled()
+  })
+
+  it('lets Administrators set up sign-in for an existing unlinked member', async () => {
+    activeMember = administratorMember
+    mocks.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null })
+    mocks.loadSocietyData.mockImplementation(async () => ({
+      member: activeMember,
+      data: { ...makeData(activeMember), members: [activeMember, regularMember, unlinkedPendingMember] },
+    }))
+    render(<App />)
+
+    const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Manage members' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up sign-in for Pending Resident' }))
+
+    await waitFor(() => expect(mocks.provisionAuthMember).toHaveBeenCalledWith({
+      id: unlinkedPendingMember.id,
+      name: unlinkedPendingMember.name,
+      unit: unlinkedPendingMember.unit,
+      email: unlinkedPendingMember.email,
+      phone: unlinkedPendingMember.phone,
+      role: unlinkedPendingMember.role,
+    }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Google sign-in account linked and member access activated.')
+  })
+
+  it('lets Administrators edit a member mobile number', async () => {
+    activeMember = administratorMember
+    mocks.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null })
+    render(<App />)
+
+    const navigation = await screen.findByRole('navigation', { name: 'Society navigation' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Manage members' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Riya Member' }))
+    fireEvent.change(screen.getByLabelText('Contact mobile number'), { target: { value: '+919876543299' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save member changes' }))
+
+    await waitFor(() => expect(mocks.updateSocietyMember).toHaveBeenCalledWith('member-1', {
+      name: regularMember.name,
+      unit: regularMember.unit,
+      email: regularMember.email,
+      phone: '+919876543299',
+      role: regularMember.role,
+    }))
   })
 
   it('limits a security account to the Gate & security module', async () => {

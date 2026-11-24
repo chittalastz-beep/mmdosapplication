@@ -109,6 +109,7 @@ Deno.serve(async (request: Request) => {
   const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : ''
   const unitName = typeof body.unitName === 'string' ? body.unitName.trim().toUpperCase() : ''
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+  const memberId = typeof body.memberId === 'string' ? body.memberId.trim() : ''
   const phone = typeof body.phone === 'string' ? body.phone.trim() || null : null
   const role = typeof body.role === 'string' ? body.role : ''
   if (fullName.length < 1 || fullName.length > 120) {
@@ -129,14 +130,32 @@ Deno.serve(async (request: Request) => {
   if (!allowedRoles.has(role)) {
     return response(400, { error: 'Choose a valid society role.' }, origin)
   }
+  if (memberId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(memberId)) {
+    return response(400, { error: 'The society member ID is invalid.' }, origin)
+  }
 
-  const { data: existingProfile, error: profileLookupError } = await adminClient
+  const profileLookup = adminClient
     .from('society_members')
     .select('id,user_id')
-    .eq('email', email)
-    .maybeSingle()
+  const { data: existingProfile, error: profileLookupError } = memberId
+    ? await profileLookup.eq('id', memberId).maybeSingle()
+    : await profileLookup.eq('email', email).maybeSingle()
   if (profileLookupError) {
     return response(500, { error: `Could not check the society profile: ${profileLookupError.message}` }, origin)
+  }
+  if (memberId && !existingProfile) {
+    return response(404, { error: 'The society member to link was not found.' }, origin)
+  }
+  const { data: emailProfile, error: emailProfileError } = await adminClient
+    .from('society_members')
+    .select('id')
+    .eq('email', email)
+    .maybeSingle()
+  if (emailProfileError) {
+    return response(500, { error: `Could not check the society profile email: ${emailProfileError.message}` }, origin)
+  }
+  if (emailProfile && emailProfile.id !== existingProfile?.id) {
+    return response(409, { error: 'This email is already assigned to another society profile.' }, origin)
   }
   const { data: existingUnit, error: unitLookupError } = await adminClient
     .from('society_members')
@@ -164,6 +183,10 @@ Deno.serve(async (request: Request) => {
   let authUserId = typeof authMatch?.user_id === 'string' ? authMatch.user_id : ''
   let createdAuthUserId = ''
 
+  if (existingProfile?.user_id && existingProfile.user_id !== authUserId) {
+    return response(409, { error: 'This profile is already linked to a different Auth identity. Confirm which Google email the member uses before changing the link.' }, origin)
+  }
+
   if (authUserId && authMatch?.email_confirmed !== true) {
     const { error } = await adminClient.auth.admin.updateUserById(authUserId, { email_confirm: true })
     if (error) {
@@ -183,10 +206,6 @@ Deno.serve(async (request: Request) => {
     }
     authUserId = data.user.id
     createdAuthUserId = data.user.id
-  }
-
-  if (existingProfile?.user_id && existingProfile.user_id !== authUserId) {
-    return response(409, { error: 'This email is linked to a different Auth identity. Do not overwrite it; verify the existing Google identity first.' }, origin)
   }
 
   const profileValues = {

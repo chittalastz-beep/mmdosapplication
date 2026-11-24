@@ -34,12 +34,15 @@ In the Supabase project, open **SQL Editor**. For a new project, run each migrat
 8. `supabase/migrations/202611230004_admin_provisioning_service_role_grants.sql`
 9. `supabase/migrations/202611230005_member_readonly_full_app.sql`
 10. `supabase/migrations/202611230006_expense_documents.sql`
+11. `supabase/migrations/202611240001_administrator_full_access.sql`
 
 Wait for each migration to finish successfully before running the next. The migrations create the society tables, row-level security (RLS) policies, and role-checked functions used by the app. Migration 004 enables President/Secretary member profile and role editing. Migration 005 restricts database access to Google-authenticated users and links new member profiles to confirmed Auth emails. Migration 006 grants authenticated sessions the table privilege needed to query visitor records; RLS continues to restrict which rows are returned.
 
-Migration 007 adds the Administrator role, authorizes Administrators to manage society member roles, and restricts Auth-user lookup to the server-side provisioning function. Migration 008 grants the server-side `service_role` only the `SELECT`, `INSERT`, and `UPDATE` privileges it needs on `society_members`. Migration 009 gives active Members read-only access to all application modules, including visitor logs, and removes their ability to create or update records. Migration 010 creates a private expense-document bucket, limits uploads to Treasurers, and allows active members to view attached files through short-lived signed links. Apply only migrations that have not already run, in ascending order; do not rerun completed migrations. Migration 002 can be run whether or not login-activity additions were already included in migration 001. Record which migration files have been applied.
+Migration 007 adds the Administrator role, authorizes Administrators to manage society member roles, and restricts Auth-user lookup to the server-side provisioning function. Migration 008 grants the server-side `service_role` only the `SELECT`, `INSERT`, and `UPDATE` privileges it needs on `society_members`. Migration 009 gives active Members read-only access to all application modules, including visitor logs, and removes their ability to create or update records. Migration 010 creates a private expense-document bucket and short-lived signed links. Migration 011 grants Administrators full in-app module access, exposes suspended profiles for account recovery, and enables editing member phone numbers. Apply only migrations that have not already run, in ascending order; do not rerun completed migrations. Migration 002 can be run whether or not login-activity additions were already included in migration 001. Record which migration files have been applied.
 
 The app does not apply migrations automatically. The SQL files in the repository have not been applied to your Supabase project by this setup guide.
+
+For an existing deployment that has migrations 001–010 applied, run only `supabase/migrations/202611240001_administrator_full_access.sql` in the Supabase SQL Editor. Then redeploy `admin-provision-member` from the project directory with `npx supabase functions deploy admin-provision-member` and rebuild/redeploy the frontend so the phone editor and account-recovery controls are available.
 
 ## 3. Configure Google sign-in
 
@@ -65,7 +68,7 @@ values
   ('AUTH_USER_UUID', 'Administrator name', 'A-01', 'admin@example.com', '+919876543210', 'administrator', 'active');
 ```
 
-This one-time SQL bootstrap is required because no in-app Administrator exists yet. The Administrator can then create other Administrators and assign society roles through **Manage members**. This role is deliberately limited to managing accounts and roles; it does not grant access to reports, expenses, maintenance, notices, or visitor records. Use the same SQL pattern with role `president` only if you are separately bootstrapping a first President.
+This one-time SQL bootstrap is required because no in-app Administrator exists yet. The Administrator can then create other Administrators, assign society roles, and access every application module through **Manage members** and the application navigation. Use the same SQL pattern with role `president` only if you are separately bootstrapping a first President.
 
 ## 5. Configure the frontend
 
@@ -117,9 +120,9 @@ Confirm that `admin-provision-member` appears in the Supabase Dashboard under **
 - **Administrator:** Open **Manage members → Add member**, enter the member's name, duplex unit, Google sign-in email, and optional contact phone, then choose a role. The server creates or links the Supabase Auth user and activates the profile immediately. Carefully verify the email spelling. The person must sign in with the matching verified Google account.
 - **President or Secretary:** Create and confirm the member's Auth user in Supabase **Authentication → Users** first. Then add the member through **Manage members**. The profile remains **Pending** until an authorized committee member selects a role and chooses **Approve**.
 
-An existing profile already linked to a different Auth user cannot be reassigned in this flow. Use **Edit** to update another member's name, unit, contact email, or role; the contact email does not change the Google Auth email. A member's linked Auth identity and membership status cannot be edited there, and an Administrator cannot edit their own role.
+For an existing unlinked profile, use **Set up sign-in** to create or locate its confirmed Supabase Auth user, link the profile, and activate access. Administrators can use **Activate access** to reactivate an inactive linked profile. The email must match the member's verified Google account. An existing profile already linked to a different Auth user cannot be reassigned in this flow. Use **Edit** to update another member's name, unit, contact mobile, contact email, or role; the contact email does not change the Google Auth email. An Administrator can edit their own contact details but cannot change their own role.
 
-Pending members cannot access society records. Active `Member` accounts can view every application module, including visitor logs and the member account directory, but cannot create, edit, approve, or check out records. Apply migration 009 to enforce these read-only permissions in the database. Assign Security personnel the `Security` role; the app then limits their navigation to Gate & security.
+Pending and suspended members cannot access society records. Active `Member` accounts can view every application module, including visitor logs and the member account directory, but cannot create, edit, approve, or check out records. Apply migration 009 to enforce these read-only permissions in the database. Apply migration 011 to grant Administrators full application access. Assign Security personnel the `Security` role; the app then limits their navigation to Gate & security.
 
 ## 8. Configure the deployed app
 
@@ -179,7 +182,7 @@ from public.society_members
 where lower(email) = lower('GOOGLE_EMAIL');
 ```
 
-The Auth email must be confirmed. If there is no profile row, an Administrator can provision it; a President or Secretary can add it as pending after the Auth user is created. For the first Administrator, follow section 4 above. If the correct profile row exists but `user_id` is null, an authorized Supabase project operator can link it after verifying the email and Auth UUID:
+The Auth email must be confirmed. If there is no profile row, an Administrator can provision it; a President or Secretary can add it as pending after the Auth user is created. For the first Administrator, follow section 4 above. After migration 011 and the updated provisioning function are deployed, an Administrator can repair an unlinked profile with **Set up sign-in** or reactivate a suspended/ pending linked account with **Activate access**. If the profile already has a different `user_id`, do not overwrite it blindly: existing expenses and audit records may refer to that Auth ID. Check that the Google email was added and confirmed on the existing Supabase Auth account so Google identity linking uses that same account. Membership must also be active before society data is available.
 
 ```sql
 update public.society_members
@@ -188,7 +191,5 @@ where id = 'MEMBER_ROW_UUID'
   and user_id is null
   and lower(email) = lower('GOOGLE_EMAIL');
 ```
-
-If the profile already has a different `user_id`, do not overwrite it blindly: existing expenses and audit records may refer to that Auth ID. Check that the Google email was added and confirmed on the existing Supabase Auth account so Google identity linking uses that same account. Membership must also be active before society data is available.
 
 See [TESTING.md](./TESTING.md) for the automated test scope and manual integration checklist, and [ADMIN_OPERATIONS.md](./ADMIN_OPERATIONS.md) for ongoing frontend/backend maintenance.

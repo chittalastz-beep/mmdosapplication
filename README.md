@@ -44,10 +44,10 @@ To configure shared Supabase storage and Google sign-in, follow [SUPABASE_SETUP.
 
 ## Included workflows
 
-- Society dashboard and member directory, with role-specific member administration: Administrators can provision Auth-linked accounts and assign all society roles, while Presidents/Secretaries can add pre-provisioned accounts for approval.
+- Society dashboard and member directory, with full-application Administrator access, editable member contact mobile numbers, role assignment, and Google sign-in account provisioning/linking.
 - Google sign-in for verified, pre-provisioned member accounts, persistent per-device sessions, and self-service profile updates when Supabase is configured.
 - Role-restricted Gate & security portal for security accounts; ordinary members can view reports but cannot access visitor records.
-- Expense register with a visible Treasurer → President approval flow, Treasurer-only supporting document uploads to private Supabase Storage, return-for-clarification action, and paid state.
+- Expense register with a visible Treasurer → President approval flow, Treasurer/Administrator supporting document uploads to private Supabase Storage, return-for-clarification action, and paid state.
 - Expense CSV export and per-expense WhatsApp-ready sharing.
 - Maintenance requests with priority and Open → In progress → Resolved tracking.
 - Visitor gate register with entry and checkout tracking.

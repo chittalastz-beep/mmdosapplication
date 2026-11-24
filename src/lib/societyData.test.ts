@@ -102,6 +102,28 @@ describe('society data services', () => {
     })
   })
 
+  it('links an existing unlinked society profile to its Google sign-in account', async () => {
+    await provisionAuthMember({
+      id: 'member-42',
+      name: 'Existing Resident',
+      unit: 'C-07',
+      email: 'resident@example.com',
+      phone: '+919876543210',
+      role: 'Member',
+    })
+
+    expect(mocks.invoke).toHaveBeenCalledWith('admin-provision-member', {
+      body: {
+        memberId: 'member-42',
+        fullName: 'Existing Resident',
+        unitName: 'C-07',
+        email: 'resident@example.com',
+        phone: '+919876543210',
+        role: 'member',
+      },
+    })
+  })
+
   it('surfaces the administrator function error returned by the backend', async () => {
     mocks.invoke.mockResolvedValue({
       data: null,
@@ -199,6 +221,7 @@ describe('society data services', () => {
       name: 'Updated Resident',
       unit: 'C-07',
       email: 'resident@example.com',
+      phone: '+919876543210',
       role: 'Secretary',
     })
 
@@ -207,6 +230,7 @@ describe('society data services', () => {
       member_name: 'Updated Resident',
       member_unit: 'C-07',
       member_email: 'resident@example.com',
+      member_phone: '+919876543210',
       assigned_role: 'secretary',
     })
   })
@@ -224,8 +248,8 @@ describe('society data services', () => {
       full_name: 'Riya Member',
       unit_name: 'A-02',
       role: 'member',
-      phone: '+919876543210',
       email: null,
+      phone: '+919876543210',
       status: 'active',
     }
     const tables: Record<string, Array<Record<string, unknown>>> = {
@@ -287,6 +311,7 @@ describe('society data services', () => {
       role: 'Member',
       status: 'Active',
       phone: '+919876543210',
+      authLinked: true,
     })
     expect(result.data.expenses[0]).toMatchObject({
       id: 'expense-1',
@@ -310,5 +335,33 @@ describe('society data services', () => {
     })
 
     await expect(loadSocietyData('unlinked-user')).rejects.toThrow('not linked to a society member')
+  })
+
+  it('explains that suspended members need administrator access restoration', async () => {
+    const suspendedMember = {
+      id: 'member-suspended',
+      user_id: 'user-suspended',
+      full_name: 'Suspended Resident',
+      unit_name: 'B-10',
+      role: 'member',
+      phone: null,
+      email: 'suspended@example.com',
+      status: 'suspended',
+    }
+    let memberQueryCount = 0
+    mocks.from.mockImplementation(() => {
+      const query = {
+        select: vi.fn(() => query),
+        eq: vi.fn(() => query),
+        maybeSingle: vi.fn(() => {
+          memberQueryCount += 1
+          return Promise.resolve({ data: memberQueryCount === 1 ? suspendedMember : null, error: null })
+        }),
+        order: vi.fn(() => Promise.resolve({ data: [], error: null })),
+      }
+      return query
+    })
+
+    await expect(loadSocietyData('user-suspended')).rejects.toThrow('Your society access is suspended. Contact the Administrator to restore access.')
   })
 })

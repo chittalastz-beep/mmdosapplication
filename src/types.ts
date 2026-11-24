@@ -46,7 +46,8 @@ export type Member = {
   role: string
   phone: string
   email?: string
-  status: 'Active' | 'Pending'
+  authLinked?: boolean
+  status: 'Active' | 'Pending' | 'Suspended'
 }
 
 export type SocietyData = {
